@@ -1,0 +1,55 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Lunar Dose</title>
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icon.svg"><link rel="apple-touch-icon" href="icon.svg"><meta name="theme-color" content="#0b1026">
+<style>
+:root{--bg:#0b1026;--card:#151b3b;--line:#26305f;--tx:#eef1ff;--mut:#9aa3d0;--gold:#f5d98a}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% -10%,#1f2a63,var(--bg) 60%);color:var(--tx);font-family:Georgia,serif;text-align:center;padding:max(24px,env(safe-area-inset-top)) 16px 48px}
+main{max-width:420px;margin:auto}
+h1{font-weight:400;font-size:22px;color:var(--gold);margin:0 0 8px}
+.moon{width:220px;height:220px;filter:drop-shadow(0 0 36px #f5d98a66)}
+.big{font-size:40px;line-height:1.1;margin:4px 0}.mut{color:var(--mut);font-family:system-ui,sans-serif;font-size:14px}
+.card{background:var(--card);border-radius:18px;padding:16px;margin:16px 0;text-align:left;font-family:system-ui,sans-serif}
+button,select{font:inherit;border:0;border-radius:14px;padding:14px;background:var(--gold);color:#1a1a2e;font-weight:700;width:100%;margin-top:10px}
+select{background:var(--line);color:var(--tx)}
+ul{list-style:none;padding:0;margin:8px 0 0}li{padding:9px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
+</style></head><body><main>
+<h1>Lunar Dose</h1>
+<svg class="moon" viewBox="-100 -100 200 200"><circle r="90" fill="#222a52"/><path id="lit" fill="#f5e9c0"/></svg>
+<div class="mut" id="ph"></div><div class="big" id="cd">–</div><div class="mut" id="nx"></div>
+<div class="card"><b>Dose de hoje</b><button id="tomei">Marcar como tomada</button><div class="mut" id="st"></div></div>
+<div class="card"><b>Notificações</b>
+<select id="doses"><option value="2">2 avisos por dia (8h e 20h)</option><option value="3" selected>3 avisos por dia (8h, 14h e 20h)</option></select>
+<button id="on">Ativar notificações</button><div class="mut" id="msg"></div></div>
+<div class="card"><b>Próximas luas cheias</b><ul id="list"></ul></div>
+</main>
+<script src="moon.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+<script src="config.js"></script>
+<script>
+const $=id=>document.getElementById(id),today=Moon.day(new Date());
+firebase.initializeApp(FIREBASE_CONFIG);const db=firebase.firestore();
+let taken=[];
+function draw(p){const k=Math.cos(2*Math.PI*p),r=90,w=p<.5,a=Math.abs(k)*r,s=w?(k>0?0:1):(k>0?1:0);
+$('lit').setAttribute('d',`M0 ${-r}A${r} ${r} 0 0 ${w?1:0} 0 ${r}A${a} ${r} 0 0 ${s} 0 ${-r}`)}
+function name(p){return p<.03||p>.97?'Lua nova':p<.22?'Crescente':p<.28?'Quarto crescente':p<.47?'Gibosa crescente':p<.53?'Lua cheia':p<.72?'Gibosa minguante':p<.78?'Quarto minguante':'Minguante'}
+function render(){const now=new Date(),p=Moon.phase(now),f=Moon.nextFulls(now,12);
+draw(p);$('ph').textContent=name(p);
+if(Moon.day(f[0])===today){$('cd').textContent='Hoje é lua cheia';$('nx').textContent='Dia da dose'}
+else{const d=Math.ceil((f[0]-now)/864e5);$('cd').textContent=d+(d==1?' dia':' dias');$('nx').textContent='para a próxima lua cheia'}
+const fmt=new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'long',timeZone:'America/Maceio'});
+$('list').innerHTML=f.map(d=>`<li><span>${fmt.format(d)}</span><span>${taken.includes(Moon.day(d))?'✔':''}</span></li>`).join('');
+$('st').textContent=taken.includes(today)?'Dose de hoje marcada ✔':''}
+async function load(){const t=localStorage.tok;if(t){try{const s=await db.collection('devices').doc(t).get();if(s.exists){taken=s.data().taken||[];$('doses').value=s.data().doses||3;$('on').textContent='Salvar ajustes'}}catch(e){}}render()}
+$('on').onclick=async()=>{try{
+const reg=await navigator.serviceWorker.register('firebase-messaging-sw.js');
+if(await Notification.requestPermission()!=='granted')return $('msg').textContent='Permissão negada. Libere as notificações nas configurações do navegador.';
+const tok=await firebase.messaging().getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
+localStorage.tok=tok;await db.collection('devices').doc(tok).set({doses:+$('doses').value},{merge:true});
+$('msg').textContent='Notificações ativadas ✔'}catch(e){$('msg').textContent='Erro: '+e.message}};
+$('tomei').onclick=async()=>{const t=localStorage.tok;if(!t)return $('st').textContent='Ative as notificações primeiro.';
+if(!taken.includes(today))taken.push(today);
+await db.collection('devices').doc(t).set({taken:firebase.firestore.FieldValue.arrayUnion(today)},{merge:true});render()};
+load();
+</script></body></html>
